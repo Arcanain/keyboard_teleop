@@ -1,25 +1,46 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+This module implements a ROS2 node for keyboard teleoperation of robots.
+
+It listens for keyboard input and publishes geometry_msgs/Twist messages
+
+based on the input to control a robot.
+"""
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 import numpy as np
-import sys, termios, tty, select, os
+import sys
+import termios
+import tty
+import select
+import os
 import threading
-import yaml
+
 
 class KeyTeleop(Node):
+    """
+    ROS2 Node for keyboard teleoperation of robots.
+
+    This node listens for keyboard input and publishes
+
+    geometry_msgs/Twist messages based on the input to control a robot.
+    """
+
     def __init__(self):
+        """Initialize the KeyTeleop node."""
         super().__init__('keyboard_teleop')
 
-        # ターミナル設定の保存。キーボード入力のための特殊設定を後で元に戻すため
         if os.isatty(sys.stdin.fileno()):
             self.settings = termios.tcgetattr(sys.stdin)
         else:
-            self.settings = None  # sys.stdinが端末デバイスに接続されていない場合
+            self.settings = None
 
         self.pub_twist = self.create_publisher(Twist, '/cmd_vel', 10)
 
-        # コマンドバインディングの設定
-        # キー入力に対応する移動方向と回転方向のベクトルを定義
         self.cmd_bindings = {
             'q': np.array([1, 1]),
             'w': np.array([1, 0]),
@@ -30,8 +51,7 @@ class KeyTeleop(Node):
             'x': np.array([-1, 0]),
             'c': np.array([-1, 1])
         }
-        # スピード設定バインディング
-        # 特定のキーでスピードの増減を行う
+
         self.set_bindings = {
             't': np.array([1, 1]),
             'b': np.array([-1, -1]),
@@ -40,41 +60,38 @@ class KeyTeleop(Node):
             'u': np.array([0, 1]),
             'm': np.array([0, -1])
         }
-        self.speed = np.array([0.5, 1.0]) # 初期スピード設定
-        self.inc_ratio = 0.1 # スピード変更比率
-        self.command = np.array([0, 0]) # 現在のコマンド（スピードと方向）
-        #self.settings = termios.tcgetattr(sys.stdin) # ターミナル設定の保存。キーボード入力のための特殊設定を後で元に戻すため
 
-        # 使用方法表示
+        self.speed = np.array([0.5, 1.0])
+        self.inc_ratio = 0.1
+        self.command = np.array([0, 0])
+
         self.print_usage()
-        
-        # キーボード入力監視用のスレッドを開始
+
         self.input_thread = threading.Thread(target=self.monitor_keyboard_input)
-        self.input_thread.daemon = True  # プログラム終了時にスレッドも終了するように設定
+        self.input_thread.daemon = True
         self.input_thread.start()
-        
-        # タイマーを設定して、キー入力がなくても定期的にTwistメッセージをパブリッシュ
+
         self.timer = self.create_timer(0.1, self.publish_twist_message)
         self.get_logger().info('Node is running')
 
     def monitor_keyboard_input(self):
-        """キーボード入力を監視し、コマンドを更新する"""
+        """Monitor keyboard input and update commands."""
         while True:
-            # キーボード入力を非ブロッキングで取得
             ch = self.get_key()
             if ch:
                 self.process_key(ch)
 
     def publish_twist_message(self):
-        """設定されたコマンドに基づいてTwistメッセージをパブリッシュ"""
+        """Publish Twist messages based on configured commands."""
         self.update()
 
     def fini(self):
-        """プログラム終了時にターミナル設定を元に戻す"""
+        """Restore terminal settings when exiting the program."""
         if self.settings is not None:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.settings)
 
     def print_usage(self):
+        """Print usage instructions to the console."""
         msg = """
         Keyboard Teleop that Publish to /cmd_vel (geometry_msgs/Twist)
         Copyright (C) 2024
@@ -97,10 +114,12 @@ class KeyTeleop(Node):
         self.show_status()
 
     def show_status(self):
+        """Display the current speed settings to the console."""
         msg = 'Status:\tlinear {:.2f}\tangular {:.2f}'.format(self.speed[0], self.speed[1])
         self.get_logger().info(msg)
 
     def process_key(self, ch):
+        """Process a single key input."""
         if ch == 'h':
             self.print_usage()
         elif ch in self.cmd_bindings:
@@ -110,7 +129,7 @@ class KeyTeleop(Node):
             self.show_status()
         elif ch == 'g':
             self.get_logger().info('Quitting')
-            self.fini()  # ターミナル設定を復元
+            self.fini()
             twist = Twist()
             self.pub_twist.publish(twist)
             rclpy.shutdown()
@@ -118,6 +137,7 @@ class KeyTeleop(Node):
             self.command = np.array([0, 0])
 
     def update(self):
+        """Update and publish the Twist message based on current command."""
         twist = Twist()
         cmd = self.speed * self.command
         twist.linear.x = cmd[0]
@@ -125,11 +145,12 @@ class KeyTeleop(Node):
         self.pub_twist.publish(twist)
 
     def get_key(self):
-        # ターミナル設定を変更してキー入力を非ブロッキングで取得
+        """Change terminal settings to get non-blocking keystrokes."""
         tty.setraw(sys.stdin.fileno())
         select.select([sys.stdin], [], [], 0)
         key = sys.stdin.read(1)
         return key.lower()
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -139,10 +160,11 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        teleop.fini()  # プログラム終了時にターミナルの設定を復元
+        teleop.fini()
         teleop.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
