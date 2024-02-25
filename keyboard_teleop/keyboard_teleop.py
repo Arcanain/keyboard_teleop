@@ -145,11 +145,14 @@ class KeyTeleop(Node):
         self.pub_twist.publish(twist)
 
     def get_key(self):
-        """Change terminal settings to get non-blocking keystrokes."""
-        tty.setraw(sys.stdin.fileno())
-        select.select([sys.stdin], [], [], 0)
-        key = sys.stdin.read(1)
-        return key.lower()
+        """Get a single keystroke without blocking."""
+        if self.settings is not None:
+            tty.setraw(sys.stdin.fileno())
+            select.select([sys.stdin], [], [], 0)
+            key = sys.stdin.read(1)
+            return key.lower()
+        else:
+            return None
 
 
 def main(args=None):
